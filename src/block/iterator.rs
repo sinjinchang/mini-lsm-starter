@@ -6,9 +6,13 @@ use super::Block;
 
 /// Iterates on a block.
 pub struct BlockIterator {
+    /// The internal `Block`, wrapped by an `Arc`
     block: Arc<Block>,
+    /// The current key, empty represents the iterator is invalid
     key: Vec<u8>,
+    /// The corresponding value, can be empty
     value: Vec<u8>,
+    /// Current index of the key-value pair, should be in range of [0, num_of_elements)
     idx: usize,
 }
 
@@ -49,6 +53,7 @@ impl BlockIterator {
     }
 
     /// Returns true if the iterator is valid.
+    /// Note: You may want to make use of `key`
     pub fn is_valid(&self) -> bool {
         !self.key.is_empty()
     }
@@ -58,53 +63,24 @@ impl BlockIterator {
         self.seek_to(0);
     }
 
-    /// Seeks to the idx-th key in the block.
-    fn seek_to(&mut self, idx: usize) {
-        if idx >= self.block.offsets.len() {
-            self.key.clear();
-            self.value.clear();
-            return;
-        }
-        let offset = self.block.offsets[idx] as usize;
-        self.seek_to_offset(offset);
-        self.idx = idx;
-    }
-
     /// Move to the next key in the block.
     pub fn next(&mut self) {
         self.idx += 1;
         self.seek_to(self.idx);
     }
 
-    /// Seek to the specified position and update the current `key` and `value`
-    /// Index update will be handled by caller
-    fn seek_to_offset(&mut self, offset: usize) {
-        let mut entry = &self.block.data[offset..];
-        // Since `get_u16()` will automatically move the ptr 2 bytes ahead here,
-        // we don't need to manually advance it
-        let key_len = entry.get_u16() as usize;
-        let key = entry[..key_len].to_vec();
-        entry.advance(key_len);
-        self.key.clear();
-        self.key.extend(key);
-        let value_len = entry.get_u16() as usize;
-        let value = entry[..value_len].to_vec();
-        entry.advance(value_len);
-        self.value.clear();
-        self.value.extend(value);
-    }
-
-    /// Seek to the first key that is >= `key`.
+    /// Seek to the first key that >= `key`.
+    /// Note: You should assume the key-value pairs in the block are sorted when being added by callers.
     pub fn seek_to_key(&mut self, key: &[u8]) {
         let mut low = 0;
         let mut high = self.block.offsets.len();
         while low < high {
-            let mid = low + (high - low) / 2;
+            let mid = low + (high-low) / 2;
             self.seek_to(mid);
             assert!(self.is_valid());
             match self.key().cmp(key) {
                 std::cmp::Ordering::Less => low = mid + 1,
-                std::cmp::Ordering::Greater => high = mid,
+                std::cmp::Ordering::Geater => high = mid,
                 std::cmp::Ordering::Equal => return,
             }
         }
